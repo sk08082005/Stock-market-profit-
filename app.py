@@ -76,6 +76,57 @@ def get_signal(latest):
         return "HOLD", "Koi strong signal nahi abhi", "gray"
 
 
+def backtest_strategy(data, starting_capital=100000):
+    """
+    Strategy: Jab MA50, MA200 ke upar cross kare -> BUY (position = 1)
+              Jab MA50, MA200 ke neeche cross kare -> SELL (position = 0)
+    Isse compare karte hain agar tum sirf shuru mein khareed ke
+    rakh dete (Buy & Hold) toh kya hota.
+    """
+    df = data.copy().dropna(subset=["MA50", "MA200"])
+
+    # Position: 1 matlab stock hold kar rahe hain, 0 matlab cash mein baithe hain
+    df["Position"] = 0
+    df.loc[df["MA50"] > df["MA200"], "Position"] = 1
+
+    # Daily return (stock kitna % badla/ghata roz)
+    df["DailyReturn"] = df["Close"].pct_change()
+
+    # Strategy return = sirf tab milta hai jab Position=1 (hold kar rahe the)
+    # Position ko 1 din shift karte hain kyunki signal aaj mila,
+    # trade kal execute hoga (real trading mein aisa hi hota hai)
+    df["StrategyReturn"] = df["DailyReturn"] * df["Position"].shift(1)
+
+    # Cumulative growth nikaalna (100000 se shuru karke)
+    df["StrategyEquity"] = starting_capital * (1 + df["StrategyReturn"].fillna(0)).cumprod()
+    df["BuyHoldEquity"] = starting_capital * (1 + df["DailyReturn"].fillna(0)).cumprod()
+
+    # Trades kitni baar hui (position change hua)
+    trades = df["Position"].diff().fillna(0)
+    num_trades = int((trades != 0).sum())
+
+    # Max Drawdown = sabse bada gira hua % peak se (risk samajhne ke liye)
+    running_max = df["StrategyEquity"].cummax()
+    drawdown = (df["StrategyEquity"] - running_max) / running_max
+    max_drawdown = drawdown.min() * 100
+
+    final_strategy = df["StrategyEquity"].iloc[-1]
+    final_buyhold = df["BuyHoldEquity"].iloc[-1]
+
+    strategy_return_pct = (final_strategy / starting_capital - 1) * 100
+    buyhold_return_pct = (final_buyhold / starting_capital - 1) * 100
+
+    results = {
+        "strategy_final": final_strategy,
+        "buyhold_final": final_buyhold,
+        "strategy_return_pct": strategy_return_pct,
+        "buyhold_return_pct": buyhold_return_pct,
+        "num_trades": num_trades,
+        "max_drawdown": max_drawdown,
+    }
+    return df, results
+
+
 # ---------- MAIN LOGIC (jab button dabaya jaye) ----------
 if analyze_button:
     if not stock_input:
@@ -118,6 +169,52 @@ if analyze_button:
             st.subheader("Price Chart")
             chart_data = data[["Close", "MA50", "MA200"]].dropna()
             st.line_chart(chart_data)
+
+            # ---- Backtesting section ----
+            st.subheader("📊 Backtest: Strategy vs Buy & Hold")
+            st.caption(
+                "Ye dikhata hai ki agar tum is strategy (MA50/MA200 crossover) ko "
+                "follow karte pichle data mein, toh kitna paisa banta/ghatta — "
+                "compare karke Buy & Hold (sirf khareed ke rakhna) se."
+            )
+
+            bt_data, results = backtest_strategy(data)
+
+            b1, b2 = st.columns(2)
+            b1.metric(
+                "Strategy Return",
+                f"{results['strategy_return_pct']:.2f}%",
+                delta=f"₹{results['strategy_final']:,.0f} final value",
+            )
+            b2.metric(
+                "Buy & Hold Return",
+                f"{results['buyhold_return_pct']:.2f}%",
+                delta=f"₹{results['buyhold_final']:,.0f} final value",
+            )
+
+            b3, b4 = st.columns(2)
+            b3.metric("Total Trades", results["num_trades"])
+            b4.metric("Max Drawdown", f"{results['max_drawdown']:.2f}%")
+
+            st.caption(
+                "**Max Drawdown** = sabse bada % jitna paisa peak se neeche gira beech mein. "
+                "Ye batata hai strategy kitni 'risky' hai — jitna zyada negative, utna zyada dard "
+                "beech mein sehna padta."
+            )
+
+            st.line_chart(bt_data[["StrategyEquity", "BuyHoldEquity"]])
+
+            if results["strategy_return_pct"] > results["buyhold_return_pct"]:
+                st.success(
+                    "Is period mein strategy ne Buy & Hold se better perform kiya. "
+                    "Lekin ek hi stock/period ke result se pura bharosa mat karo — "
+                    "alag stocks aur alag time periods pe bhi test karo."
+                )
+            else:
+                st.info(
+                    "Is period mein sirf khareed ke rakhna (Buy & Hold) strategy se "
+                    "better raha. Har strategy har stock/period mein kaam nahi karti."
+                )
 
             # ---- Raw data (optional dekhne ke liye) ----
             with st.expander("Raw data dekhna ho toh yahan click karo"):
