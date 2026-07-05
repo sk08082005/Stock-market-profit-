@@ -1,0 +1,14 @@
+# Python cache files
+__pycache__/
+*.pyc
+
+# Virtual environment (agar banaya ho)
+venv/
+env/
+
+# Generated files
+stock_chart.png
+
+# OS files
+.DS_Store
+Thumbs.db
