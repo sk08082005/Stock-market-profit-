@@ -127,6 +127,20 @@ def backtest_strategy(data, starting_capital=100000):
     return df, results
 
 
+def find_last_crossovers(data):
+    """Find last Golden Cross (MA50 > MA200) and Death Cross (MA50 < MA200) dates."""
+    df = data.copy().dropna(subset=["MA50", "MA200"])
+    if df.empty:
+        return None, None
+    cross_up = (df["MA50"] > df["MA200"]) & (df["MA50"].shift(1) <= df["MA200"].shift(1))
+    cross_down = (df["MA50"] < df["MA200"]) & (df["MA50"].shift(1) >= df["MA200"].shift(1))
+    up_df = df[cross_up]
+    down_df = df[cross_down]
+    last_g = up_df.index[-1] if len(up_df) > 0 else None
+    last_d = down_df.index[-1] if len(down_df) > 0 else None
+    return last_g, last_d
+
+
 # ---------- MAIN LOGIC (jab button dabaya jaye) ----------
 if analyze_button:
     if not stock_input:
@@ -215,6 +229,71 @@ if analyze_button:
                     "Is period mein sirf khareed ke rakhna (Buy & Hold) strategy se "
                     "better raha. Har strategy har stock/period mein kaam nahi karti."
                 )
+
+            # ---- Holding Plan: Kab tak rakhna hai? Kab exit/buy more? ----
+            st.subheader("📆 Holding Plan: Kab tak rakhna hai | Exit kab? | Buy More kab?")
+            last_g, last_d = find_last_crossovers(data)
+            trend_up = latest["MA50"] > latest["MA200"]
+
+            if trend_up:
+                st.markdown("**Trend:** :green[Uptrend (Bullish)] — MA50 > MA200")
+                if last_g is not None:
+                    try:
+                        days_since_g = (data.index[-1] - last_g).days
+                        st.write(f"**Last Golden Cross:** {last_g.date()} ({days_since_g} din pehle)")
+                        if days_since_g < 60:
+                            st.write("**Holding Suggestion:** Abhi trend fresh hai. Multi-week hold consider kar sakte ho. Dips pe **Buy More** karne ka soch sakte ho jab RSI 40–50 range mein aaye.")
+                        elif 60 <= days_since_g < 180:
+                            st.write("**Holding Suggestion:** Mid-trend hai. Hold kar lo, lekin partial booking (thoda exit) ka plan rakho agar strong pullback aaye.")
+                        else:
+                            st.write("**Holding Suggestion:** Trend mature ho chuka hai. Tight stop-loss rakho. Zyada dip pe hi **Buy More** consider karo, fresh breakout nahi hua toh cautious raho.")
+                    except Exception:
+                        st.write(f"**Last Golden Cross:** {last_g}")
+                else:
+                    st.write("Pichle period mein clearly Golden Cross nahi mila.")
+
+                if latest["RSI"] < 40:
+                    st.write("**Buy More Opportunity:** :blue[RSI < 40] — Oversold zone ka hint, dip pe averaging consider kar lo (risk manage karke).")
+                if latest["RSI"] > 70:
+                    st.write("**Caution/Partial Exit:** :orange[RSI > 70] — Overbought. Thoda book profit karne ya trailing stop laga lo.")
+                st.write("**Exit Plan:** Jab MA50 < MA200 ho jaye (Death Cross) ya RSI > 80 aur momentum girne lage — tab exit ka seriously soch lo.")
+            else:
+                st.markdown("**Trend:** :red[Downtrend (Bearish)] — MA50 < MA200")
+                if last_d is not None:
+                    try:
+                        days_since_d = (data.index[-1] - last_d).days
+                        st.write(f"**Last Death Cross:** {last_d.date()} ({days_since_d} din pehle)")
+                        if days_since_d < 40:
+                            st.write("**Holding Suggestion:** Abhi downtrend fresh hai. Naya buy avoid karo. Jo hold hain unke liye strict stop-loss rakho ya partial exit lo.")
+                        else:
+                            st.write("**Holding Suggestion:** Kabhi-kabhi downtrend bounce deta hai. Sirf reversal confirmation (MA50 > MA200 wapas) ke baad hi fresh entry socho.")
+                    except Exception:
+                        st.write(f"**Last Death Cross:** {last_d}")
+                if latest["RSI"] < 30:
+                    st.write("**Watch for Reversal:** :blue[RSI < 30] — Extreme oversold. Bounce aa sakta hai, lekin confirmation bina **Buy More** mat karo.")
+                st.write("**Exit Plan:** Agar pehle se hold hain, trailing stop use karo. Fresh long entry tabhi lo jab MA50 wapas MA200 ke upar cross kare.")
+
+
+            # ---- Data Source & Methodology ----
+            st.subheader("ℹ️ Data Source & Methodology")
+            st.write(
+                "**Data Source:** [Yahoo Finance](https://finance.yahoo.com/) via [yfinance](https://github.com/ranaroussi/yfinance) library. "
+                "Hum real historical OHLCV data use karte hain jo publicly available hai."
+            )
+            st.write(
+                "**Indicators used:** Simple Moving Averages (MA50, MA200) + Relative Strength Index (RSI 14). "
+                "**Strategy tested:** MA50/MA200 crossover (Golden/Death Cross) vs Buy & Hold. "
+                "Backtest equity curve starting capital ₹100000 par calculate kiya gaya hai."
+            )
+            st.write(
+                "**Holding/Exit logic:** Crossovers, trend (MA50 vs MA200), RSI levels aur days-since-last-crossover pe based simple rules diye gaye hain."
+            )
+            st.caption(
+                "⚠️ **Disclaimer:** Ye tool educational purpose ke liye banaya gaya hai. "
+                "Koi investment advice nahi hai. Past performance future results ka guarantee nahi hota. "
+                "Real trading mein risk management (stop-loss, position sizing) zaroor use karo. "
+                "Paisa lagane se pehle apni research aur financial advisor se consult karo."
+            )
 
             # ---- Raw data (optional dekhne ke liye) ----
             with st.expander("Raw data dekhna ho toh yahan click karo"):
